@@ -34,6 +34,6 @@ jobs:
       - name: Format
         if: steps.filter.outputs.nix == 'true'
         run: |
-          nix run nixpkgs#alejandra -c .
+          nix run nixpkgs#alejandra -- -c .
 
 
