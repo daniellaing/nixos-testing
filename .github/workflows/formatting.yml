@@ -15,24 +15,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Filter changed paths
-        id: filter
-        uses: dorny/paths-filter@v4
-        with:
-          filters: |
-            nix:
-              - '**.nix'
-
       - name: Free disk space
-        if: steps.filter.outputs.nix == 'true'
         uses: wimpysworld/nothing-but-nix@v10
 
       - name: Install Nix
-        if: steps.filter.outputs.nix == 'true'
         uses: cachix/install-nix-action@v31
 
       - name: Format
-        if: steps.filter.outputs.nix == 'true'
         run: |
           nix run nixpkgs#alejandra -- -c .
 
