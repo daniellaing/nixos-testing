@@ -1,0 +1,122 @@
+name: Update Flake Inputs
+
+on:
+  schedule:
+    - cron: "0 3 * * 3" # Wednesday morning 3am
+  workflow_dispatch:
+
+concurrency:
+  group: "update-${{ github.ref_name }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  update:
+    name: Update flake inputs
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      repo: ${{ github.repository }}
+      pr_branch: update/${{ github.ref_name }}
+      base_branch: ${{ github.ref_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free disk space
+        uses: wimpysworld/nothing-but-nix@v10
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Create branch for update
+        run: |
+          git branch -D "$pr_branch" || echo "No existing local update branch (branch name: $pr_branch) to delete."
+          git switch -c "$pr_branch"
+
+      - name: Check if there is a currently open PR
+        id: open_pr_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Query for info about the already open update PR
+          info=$(
+            gh api graphql -F owner='{owner}' -F repo='{repo}' -F branch="$pr_branch" -f query='
+              query($owner:String!, $repo:String!, $branch:String!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequests(first: 1, states: OPEN, headRefName: $branch) {
+                    nodes {
+                      number
+                      url
+                    }
+                  }
+                }
+              }
+            ' | jq --raw-output '
+              .data.repository.pullRequests.nodes[]
+              | to_entries[]
+              | "\(.key)=\(.value)"
+            '
+          )
+          if [[ -n "$info" ]]; then
+            echo "PR info:"
+            echo "$info"
+            echo "$info" >> $GITHUB_OUTPUT
+          else
+            echo "No PR is currently open"
+          fi
+
+      - name: Fetch current PR's branch
+        if: steps.open_pr_info.outputs.number
+        run: |
+          git fetch origin "$pr_branch"
+          git branch --set-upstream-to "origin/$pr_branch"
+
+      - name: Update flake
+        run: nix flake update --commit-lock-file
+
+      - name: Apply commits from open PR
+        id: re_apply
+        if: steps.open_pr_info.outputs.number
+        run: |
+          # The base is the most recent commit on the remote branch authored by nixvim-ci
+          # This should be a flake.lock bump or a generated-files update
+          # We will cherry-pick all commits on the remote _after_ the $base commit
+          remote="origin/$pr_branch"
+          base=$(git rev-list --max-count=1 "$remote")
+          commits=( $(git rev-list --reverse "$base..$remote") )
+          if [[ -n "$commits" ]]; then
+            echo "Applying ${#commits[@]} commits..."
+            echo "count=${#commits[@]}" >> $GITHUB_OUTPUT
+            git cherry-pick \
+              --strategy-option=theirs \
+              --empty=drop \
+              "${commits[@]}"
+          else
+            echo "Nothing to re-apply"
+          fi
+
+      - name: Check if there are differences
+        id: diff
+        env:
+          pr_num: ${{ steps.open_pr_info.outputs.number }}
+        run: |
+          if [[ -n "$pr_num" ]]; then
+            remote="origin/$pr_branch"
+          else
+            remote="origin/$base_branch"
+          fi
+          diff=( $(git diff --cached --name-only origin/$base_branch) )
+          if [[ -n "$diff" ]]; then
+            echo "${#diff[@]} files different to $remote"
+            for file in "${diff[@]}"; do
+              echo "- $file"
+            done
+            echo "count=${#diff[@]}" >> $GITHUB_OUTPUT
+          else
+            echo "No files are different to $remote"
+          fi
+
+      - name:
