@@ -119,4 +119,105 @@ jobs:
             echo "No files are different to $remote"
           fi
 
-      - name:
+      - name: Create or Update Pull Request
+        id: updated_pr
+        if: steps.diff.outputs.count
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          pr_num: ${{ steps.open_pr_info.outputs.number }}
+          title: Auto update ${{ github.ref_name }}
+        run: |
+          echo "Pushing to remote branch $pr_branch"
+          git push --force --set-upstream origin "$pr_branch"
+
+          echo "Writing PR body file"
+          (
+            echo "# Automatic flake update on $(date -I)"
+            echo
+            echo '```'
+            git show --no-patch --format=%b
+            echo '```'
+          ) > body.md
+
+          if [[ -n "$pr_num" ]]; then
+            echo "Editing existing PR #$pr_num"
+            operation=updated
+            gh pr edit "$pr_num" --body-file body.md
+          else
+            echo "Creating new PR"
+            operation=created
+            gh pr create \
+              --base "$base_branch" \
+              --title "$title" \
+              --body-file body.md
+          fi
+
+          pr_info=$(
+            # Get info from `gh pr view`
+            gh pr view --json 'headRefName,number,url' --jq '
+              to_entries[]
+              | .key |=
+                  # Rename headRefName -> branch
+                  if . == "headRefName" then "branch"
+                  else . end
+              | "\(.key)=\(.value)"
+            '
+            # Get additional info locally
+            echo "head=$(git rev-parse HEAD)"
+            echo "operation=$operation"
+          )
+          echo "PR Info:"
+          echo "$pr_info"
+          echo "$pr_info" >> $GITHUB_OUTPUT
+
+      - name: Print summary
+        if: steps.updated_pr.outputs.number
+        env:
+          pr_num: ${{ steps.updated_pr.outputs.number }}
+          pr_url: ${{ steps.updated_pr.outputs.url }}
+          pr_branch: ${{ steps.updated_pr.outputs.branch }}
+          head: ${{ steps.updated_pr.outputs.head }}
+          operation: ${{ steps.updated_pr.outputs.operation }}
+          re_apply_count: ${{ steps.re_apply.outputs.count }}
+        run: |
+          short=${head:0:6}
+          # stdout
+          echo "${short} pushed to ${pr_branch}"
+          echo "#${pr_num} was ${operation}: ${pr_url}"
+          ( # markdown summary
+            echo "## ${{ github.ref_name }}"
+            echo
+            echo "\`${short}\` pushed to \`${pr_branch}\`"
+            echo
+            echo "[#${pr_num}](${pr_url}) was ${operation}."
+            echo
+            if [[ -n "$re_apply_count" ]]; then
+              echo "Re-applied $re_apply_count commits from the existing PR."
+            fi
+            echo
+          ) >> $GITHUB_STEP_SUMMARY
+
+      - name: Print cancellation summary
+        if: (!steps.updated_pr.outputs.number)
+        env:
+          pr_num: ${{ steps.open_pr_info.outputs.number }}
+          pr_url: ${{ steps.open_pr_info.outputs.url }}
+          changes: ${{ steps.diff.outputs.count || '0' }}
+          re_apply_count: ${{ steps.re_apply.outputs.count }}
+        run: |
+          (
+            echo "## Not updated"
+            echo
+            echo -n "$changes files with differences compared to "
+            if [[ -n "$pr_num" ]]; then
+              echo "[#$pr_num]($pr_url)."
+            else
+              echo "\`$base_branch\`"
+            fi
+            echo
+            if [[ -n "$re_apply_count" ]]; then
+              echo "Re-applied $re_apply_count commits from the existing PR."
+            fi
+            echo
+          ) >> $GITHUB_STEP_SUMMARY
+
