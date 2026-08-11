@@ -16,6 +16,7 @@ jobs:
     name: Update flake inputs
     permissions:
       contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     env:
       repo: ${{ github.repository }}
