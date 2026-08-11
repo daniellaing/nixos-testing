@@ -15,8 +15,8 @@ jobs:
   update:
     name: Update flake inputs
     permissions:
-      contents: read
-      pull-requests: write
+      contents: write # Allow pushing
+      pull-requests: write # Allow creating and editing PRs
     runs-on: ubuntu-latest
     env:
       repo: ${{ github.repository }}
