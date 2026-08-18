@@ -176,6 +176,15 @@ jobs:
           echo "$pr_info"
           echo "$pr_info" >> $GITHUB_OUTPUT
 
+      - name: Merge Pull Request
+        if: steps.updated_pr.outputs.number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          pr_num: ${{ steps.updated_pr.outputs.number }}
+        run: |
+          gh pr merge "$pr_num" --auto --rebase --delete-branch
+
+
       - name: Print summary
         if: steps.updated_pr.outputs.number
         env:
