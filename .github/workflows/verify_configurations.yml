@@ -83,7 +83,7 @@ jobs:
     name: Build flake all results
     runs-on: ubuntu-latest
     needs: [build_flake, build_agg]
-    if: ${{ !cascelled() }}
+    if: ${{ !cancelled() }}
     steps:
       - name: Any failed
         if: ${{ needs.build.result != 'skipped' && needs.build_agg.result != 'success' }}
