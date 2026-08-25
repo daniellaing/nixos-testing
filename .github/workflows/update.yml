@@ -30,21 +30,11 @@ jobs:
           client-id: ${{ secrets.DANIELLAING_BOT_CLIENT_ID }}
           private-key: ${{ secrets.DANIELLAING_BOT_PK }}
 
-      - name: Get bot info
-        id: bot-info
+      - name: Get bot user ID
+        id: user-id
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          slug: ${{ steps.token.outputs.app-slug }}
-        run: |
-          name="$slug[bot]"
-          name_regex="$slug"'\[bot\]'
-          id=$(gh api "/users/$name" --jq .id)
-          {
-            echo "id=$id"
-            echo "name=$name"
-            echo "email=$id+$name@users.noreply.github.com"
-            echo 'author-regex=^'"$name_regex"' <'"$id+$name_regex"'@users\.noreply\.github\.com>$'
-          } >> "$GITHUB_OUTPUT"
+        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -53,9 +43,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up git
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          git config user.name "${{ steps.bot-info.outputs.name }}"
-          git config user.email "${{ steps.bot-info.outpus.email }}"
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+          gh auth setup-git
 
       - name: Free disk space
         uses: wimpysworld/nothing-but-nix@v10
