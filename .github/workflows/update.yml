@@ -23,21 +23,51 @@ jobs:
       pr_branch: update/${{ github.ref_name }}
       base_branch: ${{ github.ref_name }}
     steps:
+      - name: Create bot token
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.DANIELLAING_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.DANIELLAING_BOT_PK }}
+
+      - name: Get bot info
+        id: bot-info
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          slug: ${{ steps.token.outputs.app-slug }}
+        run: |
+          name="$slug[bot]"
+          name_regex="$slug"'\[bot\]'
+          id=$(gh api "/users/$name" --jq .id)
+          {
+            echo "id=$id"
+            echo "name=$name"
+            echo "email=$id+$name@users.noreply.github.com"
+            echo 'author-regex=^'"$name_regex"' <'"$id+$name_regex"'@users\.noreply\.github\.com>$'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          token: ${{ steps.token.outputs.token }}
+          persist-credentials: false
 
       - name: Set up git
         run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git config user.name "${{ steps.bot-info.outputs.name }}"
+          git config user.email "${{ steps.bot-info.outpus.email }}"
 
       - name: Free disk space
         uses: wimpysworld/nothing-but-nix@v10
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ steps.token.output.token }}
 
       - name: Create branch for update
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           git branch -D "$pr_branch" || echo "No existing local update branch (branch name: $pr_branch) to delete."
           git switch -c "$pr_branch"
@@ -45,7 +75,7 @@ jobs:
       - name: Check if there is a currently open PR
         id: open_pr_info
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           # Query for info about the already open update PR
           info=$(
@@ -129,7 +159,7 @@ jobs:
         id: updated_pr
         if: steps.diff.outputs.count
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           pr_num: ${{ steps.open_pr_info.outputs.number }}
           title: Auto update ${{ github.ref_name }}
         run: |
@@ -179,7 +209,7 @@ jobs:
       - name: Merge Pull Request
         if: steps.updated_pr.outputs.number
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           pr_num: ${{ steps.updated_pr.outputs.number }}
         run: |
           gh pr merge "$pr_num" --auto --rebase --delete-branch
